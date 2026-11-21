@@ -71,6 +71,8 @@ GET  /api/search/transactions?q=INV-123&page=0&size=20
 
 Status transaksi dan keputusan workflow tetap dibaca dari PostgreSQL; indeks Elasticsearch dipakai untuk pencarian teks dan dapat dibangun ulang. Data demo serta status pekerjaan disimpan untuk eksplorasi lokal, bukan sebagai mekanisme import produksi.
 
+Untuk menjalankan workflow API tanpa Elasticsearch, set `APP_ELASTICSEARCH_ENABLED=false` dan `SPRING_DATA_ELASTICSEARCH_REPOSITORIES_ENABLED=false`; endpoint pencarian lalu tidak didaftarkan.
+
 ## Struktur teknologi
 
 - **Spring IoC / Java Stream:** layanan modular, validasi workflow, dan pemetaan hasil query.

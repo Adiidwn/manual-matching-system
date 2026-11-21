@@ -2,12 +2,14 @@ package com.example.reconciliation.search;
 
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
 
 @Service
+@ConditionalOnProperty(prefix = "app.elasticsearch", name = "enabled", havingValue = "true", matchIfMissing = true)
 public class TransactionIndexService {
     private static final int PAGE_SIZE = 2_000;
     private final JdbcTemplate jdbc;
