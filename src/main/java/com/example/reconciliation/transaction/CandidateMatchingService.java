@@ -23,8 +23,8 @@ public class CandidateMatchingService {
         if (target.getStatus() != TransactionStatus.UNMATCHED)
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Transaction must be UNMATCHED");
         LocalDate date = target.getTransactionDate();
-        return repository.findCandidates(target.getSource().name(), target.getAmount(), target.getCurrency(),
+        return new java.util.ArrayList<>(repository.findCandidates(target.getSource().name(), target.getAmount(), target.getCurrency(),
                         date.minusDays(toleranceDays).toString(), date.plusDays(toleranceDays).toString(), date.toString(), limit)
-                .stream().map(CandidateView::from).toList();
+                .stream().map(CandidateView::from).toList());
     }
 }
