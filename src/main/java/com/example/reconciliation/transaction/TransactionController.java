@@ -3,11 +3,13 @@ package com.example.reconciliation.transaction;
 import org.springframework.data.domain.Page;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.*;
+import io.swagger.v3.oas.annotations.tags.Tag;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 
+@Tag(name = "Transactions", description = "Transaction queue and candidate search")
 @RestController
 @RequestMapping("/api/transactions")
 public class TransactionController {

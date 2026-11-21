@@ -1,5 +1,7 @@
 # Transaction Reconciliation
 
+[![CI](https://github.com/Adiidwn/manual-matching-system/actions/workflows/ci.yml/badge.svg)](https://github.com/Adiidwn/manual-matching-system/actions/workflows/ci.yml)
+
 Aplikasi rekonsiliasi transaksi: **file CSV → parse → PostgreSQL → manual matching maker → checker → signer**.
 
 - **PostgreSQL** = sumber kebenaran.
@@ -11,6 +13,8 @@ Aplikasi rekonsiliasi transaksi: **file CSV → parse → PostgreSQL → manual 
 
 Dokumentasi endpoint lengkap: [`API.md`](API.md).
 Koleksi Postman: [`postman/`](postman/README.md).
+Swagger UI: `http://localhost:8080/swagger-ui.html`.
+OpenAPI JSON: `http://localhost:8080/v3/api-docs`.
 
 Alur singkat:
 
@@ -33,6 +37,8 @@ file → parse → transaksi UNMATCHED → pilih kandidat → maker → checker 
 - [Elasticsearch](#elasticsearch)
 - [Konfigurasi](#konfigurasi)
 - [Troubleshooting](#troubleshooting)
+- [Structured logging](#structured-logging)
+- [Testing dan CI](#testing-dan-ci)
 
 ## Menjalankan
 
@@ -53,6 +59,9 @@ Invoke-RestMethod http://localhost:8080/actuator/health
 ```
 
 API: `http://localhost:8080`
+
+Swagger UI: `http://localhost:8080/swagger-ui.html`  
+OpenAPI JSON: `http://localhost:8080/v3/api-docs`
 
 Menghentikan aplikasi tanpa menghapus data:
 
@@ -369,6 +378,7 @@ SPRING_DATA_ELASTICSEARCH_REPOSITORIES_ENABLED=false
 | `SPRING_KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` | Kafka |
 | `SPRING_DATA_REDIS_HOST` | `localhost` | Redis |
 | `SPRING_ELASTICSEARCH_URIS` | `http://localhost:9200` | Elasticsearch |
+| `LOGGING_STRUCTURED_FORMAT_CONSOLE` | — | `ecs` untuk log JSON ECS |
 
 ## Troubleshooting
 
@@ -385,6 +395,43 @@ SPRING_DATA_ELASTICSEARCH_REPOSITORIES_ENABLED=false
 | `409 Match must be SUBMITTED` | match sudah diproses |
 
 Jangan mengubah `transactions`/`matches` manual lewat SQL. Gunakan API agar validasi, lock, status, dan audit tetap berjalan.
+
+## Structured logging
+
+Secara default log tampil plain text. Di Docker, `compose.yaml` mengaktifkan JSON ECS:
+
+```yaml
+LOGGING_STRUCTURED_FORMAT_CONSOLE: ecs
+```
+
+Setiap request mendapat correlation id:
+
+- dari header `X-Request-Id`, atau UUID jika tidak dikirim,
+- dikembalikan di response header `X-Request-Id`,
+- masuk ke MDC sebagai `requestId`,
+- `X-User` masuk ke MDC sebagai `user`.
+
+Log import menyertakan `batchId` dan `fileName`. Log matching menyertakan `matchId` dan `actor`.
+
+```powershell
+curl.exe -i -H "X-Request-Id: demo-123" http://localhost:8080/actuator/health
+docker compose logs -f app
+```
+
+## Testing dan CI
+
+```shell
+mvn test
+mvn verify
+```
+
+Test mencakup parser CSV/trailer, lifecycle batch import, validasi antrean, pencarian kandidat, dan alur maker-checker-signer.
+
+Pipeline GitHub Actions ada di `.github/workflows/ci.yml`:
+
+- `mvn verify` untuk test + build jar,
+- build Docker image,
+- publish image ke GHCR jika push tag `v*`.
 
 ## Catatan desain
 

@@ -1,12 +1,20 @@
 package com.example.reconciliation.workflow;
 
 import jakarta.validation.Valid;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.security.SecurityRequirements;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.data.domain.Page;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 
 import static com.example.reconciliation.workflow.MatchDtos.*;
 
+@Tag(name = "Matching", description = "Manual matching: maker, checker, signer")
+@SecurityRequirements({
+        @SecurityRequirement(name = "X-User"),
+        @SecurityRequirement(name = "X-Role")
+})
 @RestController
 @RequestMapping("/api/matches")
 public class MatchingController {

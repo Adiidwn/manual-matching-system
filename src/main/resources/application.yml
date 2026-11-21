@@ -37,6 +37,13 @@ spring:
       port: ${SPRING_DATA_REDIS_PORT:6379}
   elasticsearch:
     uris: ${SPRING_ELASTICSEARCH_URIS:http://localhost:9200}
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: method
+    tags-sorter: alpha
 management:
   endpoints:
     web:

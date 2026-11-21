@@ -10,6 +10,7 @@ Semua request dan response memakai JSON, kecuali upload file (`multipart/form-da
 
 Dokumentasi pemakaian aplikasi: [`README.md`](README.md).
 Koleksi Postman: [`postman/Transaction-Reconciliation.postman_collection.json`](postman/Transaction-Reconciliation.postman_collection.json).
+Swagger UI: `http://localhost:8080/swagger-ui.html` — OpenAPI JSON: `http://localhost:8080/v3/api-docs`.
 
 ## Ringkasan endpoint
 
@@ -37,6 +38,7 @@ Koleksi Postman: [`postman/Transaction-Reconciliation.postman_collection.json`](
 - Tanggal: `yyyy-MM-dd`.
 - Amount: angka desimal, misalnya `150000.00`.
 - Pagination: `page` mulai dari `0`.
+- Setiap response menyertakan header `X-Request-Id` untuk korelasi log.
 - Header identitas (khusus matching):
   - `X-User`: nama pengguna, maksimal 100 karakter.
   - `X-Role`: `MAKER`, `CHECKER`, atau `SIGNER`.

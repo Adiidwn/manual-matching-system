@@ -13,6 +13,7 @@ services:
       APP_IMPORT_INBOX: /app/inbox
       APP_IMPORT_ARCHIVE: /app/import-archive
       APP_IMPORT_ERROR: /app/import-error
+      LOGGING_STRUCTURED_FORMAT_CONSOLE: ecs
     volumes:
       - ./imports/inbox:/app/inbox
       - ./imports/archive:/app/import-archive

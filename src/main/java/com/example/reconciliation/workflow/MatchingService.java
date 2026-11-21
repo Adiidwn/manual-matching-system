@@ -6,6 +6,9 @@ import com.example.reconciliation.transaction.TransactionSource;
 import com.example.reconciliation.transaction.TransactionStatus;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.transaction.Transactional;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -18,11 +21,14 @@ import org.springframework.web.server.ResponseStatusException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.function.Supplier;
 
 import static com.example.reconciliation.workflow.MatchDtos.*;
 
 @Service
 public class MatchingService {
+    private static final Logger log = LoggerFactory.getLogger(MatchingService.class);
+
     private final MatchRepository matches;
     private final AuditRepository audits;
     private final TransactionRepository transactions;
@@ -36,52 +42,62 @@ public class MatchingService {
     @Transactional
     @CacheEvict(cacheNames = "transaction-candidates", allEntries = true)
     public MatchView create(CreateRequest request, String actor) {
-        TransactionRecord bank = transactions.findLockedById(request.bankTransactionId())
-                .orElseThrow(() -> notFound("Bank transaction not found"));
-        TransactionRecord internal = transactions.findLockedById(request.internalTransactionId())
-                .orElseThrow(() -> notFound("Internal transaction not found"));
-        if (bank.getSource() != TransactionSource.BANK || internal.getSource() != TransactionSource.INTERNAL)
-            throw badRequest("Select one BANK transaction and one INTERNAL transaction");
-        if (bank.getStatus() != TransactionStatus.UNMATCHED || internal.getStatus() != TransactionStatus.UNMATCHED)
-            throw conflict("Both transactions must be UNMATCHED");
-        if (!bank.getAmount().equals(internal.getAmount()) || !bank.getCurrency().equals(internal.getCurrency()))
-            throw badRequest("Amount and currency must match for a manual match");
+        return withActor(actor, null, () -> {
+            TransactionRecord bank = transactions.findLockedById(request.bankTransactionId())
+                    .orElseThrow(() -> notFound("Bank transaction not found"));
+            TransactionRecord internal = transactions.findLockedById(request.internalTransactionId())
+                    .orElseThrow(() -> notFound("Internal transaction not found"));
+            if (bank.getSource() != TransactionSource.BANK || internal.getSource() != TransactionSource.INTERNAL)
+                throw badRequest("Select one BANK transaction and one INTERNAL transaction");
+            if (bank.getStatus() != TransactionStatus.UNMATCHED || internal.getStatus() != TransactionStatus.UNMATCHED)
+                throw conflict("Both transactions must be UNMATCHED");
+            if (!bank.getAmount().equals(internal.getAmount()) || !bank.getCurrency().equals(internal.getCurrency()))
+                throw badRequest("Amount and currency must match for a manual match");
 
-        MatchRecord match = matches.save(new MatchRecord(bank.getId(), internal.getId(), actor));
-        transactions.updateStatus(bank.getId(), TransactionStatus.PENDING_APPROVAL.name());
-        transactions.updateStatus(internal.getId(), TransactionStatus.PENDING_APPROVAL.name());
-        audits.save(new AuditEvent(match.getId(), actor, "MAKER", "SUBMIT", null));
-        return MatchView.from(match);
+            MatchRecord match = matches.save(new MatchRecord(bank.getId(), internal.getId(), actor));
+            MDC.put("matchId", String.valueOf(match.getId()));
+            transactions.updateStatus(bank.getId(), TransactionStatus.PENDING_APPROVAL.name());
+            transactions.updateStatus(internal.getId(), TransactionStatus.PENDING_APPROVAL.name());
+            audits.save(new AuditEvent(match.getId(), actor, "MAKER", "SUBMIT", null));
+            log.info("Match {} submitted by {}", match.getId(), actor);
+            return MatchView.from(match);
+        });
     }
 
     @Transactional
     @CacheEvict(cacheNames = "transaction-candidates", allEntries = true)
     public MatchView checkerDecision(Long id, String actor, DecisionRequest request) {
-        MatchRecord match = findLocked(id);
-        requireStatus(match, MatchStatus.SUBMITTED);
-        requireDifferentActor(match.getMaker(), actor, "Checker cannot approve their own submission");
-        if (request.approve()) match.checkedBy(actor);
-        else reject(match, actor, request.reason());
-        matches.save(match);
-        audits.save(new AuditEvent(id, actor, "CHECKER", request.approve() ? "APPROVE" : "REJECT", request.reason()));
-        return MatchView.from(match);
+        return withActor(actor, id, () -> {
+            MatchRecord match = findLocked(id);
+            requireStatus(match, MatchStatus.SUBMITTED);
+            requireDifferentActor(match.getMaker(), actor, "Checker cannot approve their own submission");
+            if (request.approve()) match.checkedBy(actor);
+            else reject(match, actor, request.reason());
+            matches.save(match);
+            audits.save(new AuditEvent(id, actor, "CHECKER", request.approve() ? "APPROVE" : "REJECT", request.reason()));
+            log.info("Match {} checker decision by {}: {}", id, actor, request.approve() ? "APPROVE" : "REJECT");
+            return MatchView.from(match);
+        });
     }
 
     @Transactional
     @CacheEvict(cacheNames = "transaction-candidates", allEntries = true)
     public MatchView signerDecision(Long id, String actor, DecisionRequest request) {
-        MatchRecord match = findLocked(id);
-        requireStatus(match, MatchStatus.CHECKED);
-        requireDifferentActor(match.getMaker(), actor, "Signer cannot be the maker");
-        requireDifferentActor(match.getChecker(), actor, "Signer cannot be the checker");
-        if (request.approve()) {
-            match.signedBy(actor);
-            transactions.updateStatus(match.getBankTransactionId(), TransactionStatus.RECONCILED.name());
-            transactions.updateStatus(match.getInternalTransactionId(), TransactionStatus.RECONCILED.name());
-        } else reject(match, actor, request.reason());
-        matches.save(match);
-        audits.save(new AuditEvent(id, actor, "SIGNER", request.approve() ? "APPROVE" : "REJECT", request.reason()));
-        return MatchView.from(match);
+        return withActor(actor, id, () -> {
+            MatchRecord match = findLocked(id);
+            requireStatus(match, MatchStatus.CHECKED);
+            requireDifferentActor(match.getMaker(), actor, "Signer cannot be the maker");
+            requireDifferentActor(match.getChecker(), actor, "Signer cannot be the checker");
+            if (request.approve()) {
+                match.signedBy(actor);
+                transactions.updateStatus(match.getBankTransactionId(), TransactionStatus.RECONCILED.name());
+                transactions.updateStatus(match.getInternalTransactionId(), TransactionStatus.RECONCILED.name());
+            } else reject(match, actor, request.reason());
+            matches.save(match);
+            audits.save(new AuditEvent(id, actor, "SIGNER", request.approve() ? "APPROVE" : "REJECT", request.reason()));
+            log.info("Match {} signer decision by {}: {}", id, actor, request.approve() ? "APPROVE" : "REJECT");
+            return MatchView.from(match);
+        });
     }
 
     @Transactional
@@ -113,6 +129,17 @@ public class MatchingService {
         String actor = value.trim();
         if (actor.length() > 100) throw badRequest("actor filter must be at most 100 characters");
         return actor;
+    }
+
+    private MatchView withActor(String actor, Long matchId, Supplier<MatchView> action) {
+        MDC.put("actor", actor);
+        if (matchId != null) MDC.put("matchId", matchId.toString());
+        try {
+            return action.get();
+        } finally {
+            MDC.remove("actor");
+            MDC.remove("matchId");
+        }
     }
 
     private void reject(MatchRecord match, String actor, String reason) {

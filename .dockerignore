@@ -1,6 +1,6 @@
 target/
-imports/
-samples/
+/imports/
+/samples/
 .git/
 .idea/
 *.iml

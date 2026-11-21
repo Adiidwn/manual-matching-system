@@ -40,5 +40,8 @@ public class TransactionQueueService {
                 blankToNull(fromDate), blankToNull(toDate), PageRequest.of(page, size, Sort.unsorted()));
     }
 
-    private String blankToNull(String value) { return value == null || value.isBlank() ? null : value; }
+    private String blankToNull(String value) {
+        if (value == null || value.isBlank()) return null;
+        return value.trim();
+    }
 }
