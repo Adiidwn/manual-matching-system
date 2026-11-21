@@ -1,0 +1,8 @@
+source,external_reference,transaction_date,amount,currency,description
+BANK,INV-1001,2025-03-01,150000.00,IDR,Transfer from PT Alpha
+INTERNAL,INV-1001,2025-03-01,150000.00,IDR,Transfer to PT Alpha
+BANK,INV-1002,2025-03-02,275000.50,IDR,Invoice payment
+INTERNAL,INV-1002,2025-03-03,275000.50,IDR,Invoice payment
+BANK,INV-1003,2025-03-04,99000.00,IDR,Refund
+INTERNAL,INV-1003,2025-03-04,99000.00,IDR,Refund
+6

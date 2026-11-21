@@ -1,0 +1,5 @@
+source,external_reference,transaction_date,amount,currency,description
+BANK,BNK-20250301-001,2025-03-01,1250000.00,IDR,"Transfer masuk, PT Maju"
+BANK,BNK-20250301-002,2025-03-01,450000.50,IDR,Payment invoice INV-9001
+BANK,BNK-20250301-003,2025-03-02,78000.00,IDR,Biaya administrasi
+3

@@ -4,13 +4,20 @@ import com.example.reconciliation.transaction.TransactionRecord;
 import com.example.reconciliation.transaction.TransactionRepository;
 import com.example.reconciliation.transaction.TransactionSource;
 import com.example.reconciliation.transaction.TransactionStatus;
+import jakarta.persistence.criteria.Predicate;
 import jakarta.transaction.Transactional;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
-import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 import static com.example.reconciliation.workflow.MatchDtos.*;
 
@@ -81,6 +88,31 @@ public class MatchingService {
     public MatchDetails get(Long id) {
         MatchRecord match = matches.findById(id).orElseThrow(() -> notFound("Match not found"));
         return new MatchDetails(MatchView.from(match), audits.findByMatchIdOrderByOccurredAtAscIdAsc(id).stream().map(AuditView::from).toList());
+    }
+
+    @Transactional
+    public Page<MatchView> list(MatchStatus status, String maker, String checker, String signer, int page, int size) {
+        if (page < 0 || size < 1 || size > 100) throw badRequest("page must be >= 0 and size must be 1..100");
+        String makerFilter = actorFilter(maker);
+        String checkerFilter = actorFilter(checker);
+        String signerFilter = actorFilter(signer);
+        Specification<MatchRecord> specification = (root, query, cb) -> {
+            List<Predicate> predicates = new ArrayList<>();
+            if (status != null) predicates.add(cb.equal(root.get("status"), status));
+            if (makerFilter != null) predicates.add(cb.equal(cb.lower(root.get("maker")), makerFilter.toLowerCase(Locale.ROOT)));
+            if (checkerFilter != null) predicates.add(cb.equal(cb.lower(root.get("checker")), checkerFilter.toLowerCase(Locale.ROOT)));
+            if (signerFilter != null) predicates.add(cb.equal(cb.lower(root.get("signer")), signerFilter.toLowerCase(Locale.ROOT)));
+            return cb.and(predicates.toArray(new Predicate[0]));
+        };
+        PageRequest pageRequest = PageRequest.of(page, size, Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id")));
+        return matches.findAll(specification, pageRequest).map(MatchView::from);
+    }
+
+    private String actorFilter(String value) {
+        if (value == null || value.isBlank()) return null;
+        String actor = value.trim();
+        if (actor.length() > 100) throw badRequest("actor filter must be at most 100 characters");
+        return actor;
     }
 
     private void reject(MatchRecord match, String actor, String reason) {

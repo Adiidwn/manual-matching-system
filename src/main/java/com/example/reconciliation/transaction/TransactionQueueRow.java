@@ -12,4 +12,5 @@ public interface TransactionQueueRow {
     String getCurrency();
     String getDescription();
     String getStatus();
+    Long getImportBatchId();
 }

@@ -1,0 +1,6 @@
+source,external_reference,transaction_date,amount,currency,description
+BANK,TRL-1001,2025-05-01,88000.00,IDR,Import with trailer
+INTERNAL,TRL-1001,2025-05-01,88000.00,IDR,Import with trailer
+BANK,TRL-1002,2025-05-02,125000.00,IDR,Second pair
+INTERNAL,TRL-1002,2025-05-02,125000.00,IDR,Second pair
+4

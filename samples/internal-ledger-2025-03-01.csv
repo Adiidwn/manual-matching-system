@@ -1,0 +1,5 @@
+source,external_reference,transaction_date,amount,currency,description
+INTERNAL,INT-20250301-001,2025-03-01,1250000.00,IDR,"Penerimaan dari PT Maju"
+INTERNAL,INT-20250301-002,2025-03-02,450000.50,IDR,Pelunasan invoice INV-9001
+INTERNAL,INT-20250301-003,2025-03-03,78000.00,IDR,Biaya administrasi bank
+3

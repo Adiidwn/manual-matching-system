@@ -6,7 +6,7 @@
     <artifactId>reconciliation</artifactId>
     <version>0.1.0-SNAPSHOT</version>
     <name>reconciliation</name>
-    <description>Manual transaction reconciliation demo</description>
+    <description>File-driven manual transaction reconciliation demo</description>
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>

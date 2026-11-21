@@ -11,14 +11,22 @@ spring:
     open-in-view: false
   flyway:
     enabled: true
+  servlet:
+    multipart:
+      max-file-size: 100MB
+      max-request-size: 100MB
   kafka:
     bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
     consumer:
-      group-id: reconciliation-demo-import
+      group-id: reconciliation-file-import
       auto-offset-reset: earliest
+      max-poll-records: 1
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
       properties:
-        spring.json.value.default.type: com.example.reconciliation.demo.DemoImportRequested
-        spring.json.trusted.packages: com.example.reconciliation.demo
+        spring.json.value.default.type: com.example.reconciliation.imports.FileImportRequested
+        spring.json.trusted.packages: com.example.reconciliation.imports
+        spring.json.use.type.headers: false
+        max.poll.interval.ms: 1800000
     producer:
       value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
       properties:
@@ -34,3 +42,12 @@ management:
     web:
       exposure:
         include: health,info
+app:
+  import:
+    inbox: ${APP_IMPORT_INBOX:./inbox}
+    processing: ${APP_IMPORT_PROCESSING:./import-processing}
+    archive: ${APP_IMPORT_ARCHIVE:./import-archive}
+    error: ${APP_IMPORT_ERROR:./import-error}
+    poll-interval-ms: ${APP_IMPORT_POLL_INTERVAL_MS:30000}
+    initial-delay-ms: ${APP_IMPORT_INITIAL_DELAY_MS:10000}
+    chunk-size: ${APP_IMPORT_CHUNK_SIZE:1000}

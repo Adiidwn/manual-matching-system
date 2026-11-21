@@ -1,6 +1,7 @@
 package com.example.reconciliation.workflow;
 
 import jakarta.validation.Valid;
+import org.springframework.data.domain.Page;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 
@@ -32,6 +33,17 @@ public class MatchingController {
                             @RequestHeader("X-Role") String role, @Valid @RequestBody DecisionRequest request) {
         requireRole(role, "SIGNER");
         return service.signerDecision(id, requireUser(user), request);
+    }
+
+    @GetMapping
+    public Page<MatchView> list(
+            @RequestParam(required = false) MatchStatus status,
+            @RequestParam(required = false) String maker,
+            @RequestParam(required = false) String checker,
+            @RequestParam(required = false) String signer,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return service.list(status, maker, checker, signer, page, size);
     }
 
     @GetMapping("/{id}")

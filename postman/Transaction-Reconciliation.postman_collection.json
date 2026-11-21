@@ -1,0 +1,736 @@
+{
+  "info": {
+    "_postman_id": "b7f0b1e2-3c4d-4e5f-8a9b-0c1d2e3f4a5b",
+    "name": "Transaction Reconciliation API",
+    "description": "# Transaction Reconciliation API\n\nBase URL: `{{baseUrl}}`\n\nAlur manual matching:\n\n1. Import file (opsional jika data sudah ada).\n2. `Queue BANK UNMATCHED` → otomatis mengisi `bankTransactionId`.\n3. `Candidates for BANK` → otomatis mengisi `internalTransactionId`.\n4. `Create Match (MAKER)` → otomatis mengisi `matchId`.\n5. `Checker Approve`.\n6. `Signer Approve`.\n\nCatatan:\n\n- Import berjalan asynchronous. Tunggu batch `COMPLETED` sebelum menjalankan folder Transactions jika database masih kosong.\n- Endpoint matching membutuhkan header `X-User` dan `X-Role`.\n- `maker`, `checker`, dan `signer` harus berbeda.\n- Folder Search membutuhkan Elasticsearch aktif.\n\nDokumentasi endpoint lengkap: `API.md`.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "00 - Health",
+      "item": [
+        {
+          "name": "Health check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/actuator/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["actuator", "health"]
+            },
+            "description": "Cek aplikasi hidup.\n\nResponse: `{\"status\":\"UP\"}`"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Aplikasi UP\", () => pm.expect(pm.response.json().status).to.eql(\"UP\"));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "01 - Import",
+      "item": [
+        {
+          "name": "Upload CSV (async)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "samples/transactions-sample.csv",
+                  "description": "Pilih ulang file jika path relatif tidak terbaca oleh Postman."
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/imports",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "imports"]
+            },
+            "description": "Upload file CSV. Response `202 Accepted` dan batch dibuat dengan status `RECEIVED`.\n\nPoll `Get Import Detail` sampai `COMPLETED` atau `FAILED`."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"202 Accepted\", () => pm.response.to.have.status(202));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Batch id tersedia\", () => pm.expect(body.id).to.be.a(\"number\"));",
+                  "pm.collectionVariables.set(\"importId\", String(body.id));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Scan Inbox",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/imports/scan",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "imports", "scan"]
+            },
+            "description": "Paksa scheduler memindai folder inbox sekarang, tanpa menunggu 30 detik.\n\nResponse: jumlah file yang didaftarkan."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"202 Accepted\", () => pm.response.to.have.status(202));",
+                  "pm.test(\"Response berupa angka\", () => pm.expect(pm.response.json()).to.be.a(\"number\"));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "List Imports",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/imports",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "imports"]
+            },
+            "description": "Menampilkan maksimal 50 batch import terbaru."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Response berupa array\", () => pm.expect(pm.response.json()).to.be.an(\"array\"));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Get Import Detail",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/imports/{{importId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "imports", "{{importId}}"]
+            },
+            "description": "Detail batch. Field penting: `status`, `totalRows`, `declaredRows`, `insertedRows`, `duplicateRows`, `rejectedRows`, `errorMessage`."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Status batch valid\", () => pm.expect([\"RECEIVED\", \"PROCESSING\", \"COMPLETED\", \"FAILED\"]).to.include(body.status));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "02 - Transactions",
+      "item": [
+        {
+          "name": "Queue BANK UNMATCHED",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/transactions?status=UNMATCHED&source=BANK&page=0&size=50",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "transactions"],
+              "query": [
+                {"key": "status", "value": "UNMATCHED"},
+                {"key": "source", "value": "BANK"},
+                {"key": "page", "value": "0"},
+                {"key": "size", "value": "50"}
+              ]
+            },
+            "description": "Mengambil transaksi BANK yang masih UNMATCHED. Script test menyimpan `id` pertama ke variabel `bankTransactionId`."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Ada transaksi BANK UNMATCHED\", () => pm.expect(body.content.length).to.be.above(0));",
+                  "if (body.content.length > 0) {",
+                  "    pm.collectionVariables.set(\"bankTransactionId\", String(body.content[0].id));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Queue Filter Example",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/transactions?status=UNMATCHED&source=BANK&externalReference=TRL&minAmount=80000&maxAmount=150000&fromDate=2025-05-01&toDate=2025-05-31&page=0&size=50",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "transactions"],
+              "query": [
+                {"key": "status", "value": "UNMATCHED"},
+                {"key": "source", "value": "BANK"},
+                {"key": "externalReference", "value": "TRL"},
+                {"key": "minAmount", "value": "80000"},
+                {"key": "maxAmount", "value": "150000"},
+                {"key": "fromDate", "value": "2025-05-01"},
+                {"key": "toDate", "value": "2025-05-31"},
+                {"key": "page", "value": "0"},
+                {"key": "size", "value": "50"}
+              ]
+            },
+            "description": "Contoh penggabungan filter.\n\n- `externalReference` = contains, case-insensitive\n- `minAmount`/`maxAmount` = inklusif\n- `fromDate`/`toDate` = inklusif\n\nHapus parameter yang tidak diperlukan."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Response berisi page\", () => pm.expect(pm.response.json()).to.have.property(\"content\"));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Candidates for BANK",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/transactions/{{bankTransactionId}}/candidates?toleranceDays=3&limit=10",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "transactions", "{{bankTransactionId}}", "candidates"],
+              "query": [
+                {"key": "toleranceDays", "value": "3"},
+                {"key": "limit", "value": "10"}
+              ]
+            },
+            "description": "Mencari kandidat INTERNAL untuk BANK `{{bankTransactionId}}`.\n\nKandidat: sumber seberang, status UNMATCHED, amount dan currency sama, tanggal ± toleranceDays.\n\nScript test menyimpan kandidat pertama ke `internalTransactionId`."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Ada kandidat\", () => pm.expect(body.length).to.be.above(0));",
+                  "if (body.length > 0) {",
+                  "    pm.collectionVariables.set(\"internalTransactionId\", String(body[0].id));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Queue INTERNAL UNMATCHED",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/transactions?status=UNMATCHED&source=INTERNAL&page=0&size=50",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "transactions"],
+              "query": [
+                {"key": "status", "value": "UNMATCHED"},
+                {"key": "source", "value": "INTERNAL"},
+                {"key": "page", "value": "0"},
+                {"key": "size", "value": "50"}
+              ]
+            },
+            "description": "Melihat antrean sisi INTERNAL."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "03 - Matching",
+      "item": [
+        {
+          "name": "Create Match (MAKER)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Content-Type", "value": "application/json"},
+              {"key": "X-User", "value": "maker-1"},
+              {"key": "X-Role", "value": "MAKER"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"bankTransactionId\": {{bankTransactionId}},\n  \"internalTransactionId\": {{internalTransactionId}}\n}",
+              "options": {"raw": {"language": "json"}}
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/matches",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "matches"]
+            },
+            "description": "Maker mengajukan pasangan BANK + INTERNAL.\n\nPrasyarat: jalankan `Queue BANK UNMATCHED` dan `Candidates for BANK` agar variabel ID terisi.\n\nResponse: `201 Created`, status `SUBMITTED`."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"201 Created\", () => pm.response.to.have.status(201));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Status SUBMITTED\", () => pm.expect(body.status).to.eql(\"SUBMITTED\"));",
+                  "pm.collectionVariables.set(\"matchId\", String(body.id));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "List Matches",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/matches?page=0&size=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "matches"],
+              "query": [
+                {"key": "page", "value": "0"},
+                {"key": "size", "value": "20"}
+              ]
+            },
+            "description": "Daftar match terbaru. Tidak memuat audit trail."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Response berisi page\", () => pm.expect(pm.response.json()).to.have.property(\"content\"));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "List Matches - Work Queue",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/matches?status=SUBMITTED&page=0&size=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "matches"],
+              "query": [
+                {"key": "status", "value": "SUBMITTED"},
+                {"key": "page", "value": "0"},
+                {"key": "size", "value": "20"}
+              ]
+            },
+            "description": "Work queue checker: match yang menunggu keputusan checker.\n\nGanti `status` ke `CHECKED` untuk work queue signer."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "List Matches - By Maker",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/matches?maker=maker-1&page=0&size=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "matches"],
+              "query": [
+                {"key": "maker", "value": "maker-1"},
+                {"key": "page", "value": "0"},
+                {"key": "size", "value": "20"}
+              ]
+            },
+            "description": "Filter berdasarkan maker. Parameter `checker` dan `signer` juga tersedia; pencocokan nama exact dan case-insensitive."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Get Match Detail + Audit",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/matches/{{matchId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "matches", "{{matchId}}"]
+            },
+            "description": "Detail match + audit trail lengkap."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Ada match\", () => pm.expect(body).to.have.property(\"match\"));",
+                  "pm.test(\"Ada audit\", () => pm.expect(body.audit.length).to.be.above(0));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Checker Approve",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Content-Type", "value": "application/json"},
+              {"key": "X-User", "value": "checker-1"},
+              {"key": "X-Role", "value": "CHECKER"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"approve\": true\n}",
+              "options": {"raw": {"language": "json"}}
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/matches/{{matchId}}/checker-decision",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "matches", "{{matchId}}", "checker-decision"]
+            },
+            "description": "Checker menyetujui match `{{matchId}}`.\n\nPrasyarat: match berstatus `SUBMITTED` dan checker berbeda dari maker."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Status CHECKED\", () => pm.expect(pm.response.json().status).to.eql(\"CHECKED\"));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Signer Approve",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Content-Type", "value": "application/json"},
+              {"key": "X-User", "value": "signer-1"},
+              {"key": "X-Role", "value": "SIGNER"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"approve\": true\n}",
+              "options": {"raw": {"language": "json"}}
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/matches/{{matchId}}/signer-decision",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "matches", "{{matchId}}", "signer-decision"]
+            },
+            "description": "Signer mengesahkan match `{{matchId}}`.\n\nPrasyarat: match berstatus `CHECKED`, signer berbeda dari maker dan checker.\n\nHasil: match `SIGNED`, transaksi menjadi `RECONCILED`."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Status SIGNED\", () => pm.expect(pm.response.json().status).to.eql(\"SIGNED\"));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Checker Reject (example)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Content-Type", "value": "application/json"},
+              {"key": "X-User", "value": "checker-1"},
+              {"key": "X-Role", "value": "CHECKER"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"approve\": false,\n  \"reason\": \"Nominal tidak sesuai mutasi bank\"\n}",
+              "options": {"raw": {"language": "json"}}
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/matches/{{matchId}}/checker-decision",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "matches", "{{matchId}}", "checker-decision"]
+            },
+            "description": "Contoh reject oleh checker. Alasan wajib.\n\nGunakan match baru yang masih `SUBMITTED`; jika dijalankan setelah approve, response `409`."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Reject berhasil atau match sudah diproses\", () => pm.expect([200, 409]).to.include(pm.response.code));",
+                  "if (pm.response.code === 200) {",
+                  "    pm.test(\"Status REJECTED\", () => pm.expect(pm.response.json().status).to.eql(\"REJECTED\"));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Signer Reject (example)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Content-Type", "value": "application/json"},
+              {"key": "X-User", "value": "signer-1"},
+              {"key": "X-Role", "value": "SIGNER"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"approve\": false,\n  \"reason\": \"Dokumen pendukung belum lengkap\"\n}",
+              "options": {"raw": {"language": "json"}}
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/matches/{{matchId}}/signer-decision",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "matches", "{{matchId}}", "signer-decision"]
+            },
+            "description": "Contoh reject oleh signer. Alasan wajib.\n\nGunakan match baru yang masih `CHECKED`; jika dijalankan setelah signer approve, response `409`."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Reject berhasil atau match sudah diproses\", () => pm.expect([200, 409]).to.include(pm.response.code));",
+                  "if (pm.response.code === 200) {",
+                  "    pm.test(\"Status REJECTED\", () => pm.expect(pm.response.json().status).to.eql(\"REJECTED\"));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "04 - Reports",
+      "item": [
+        {
+          "name": "Reconciliation Summary",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/reports/reconciliation",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "reports", "reconciliation"]
+            },
+            "description": "Agregasi jumlah transaksi per source dan status."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Response berupa array\", () => pm.expect(pm.response.json()).to.be.an(\"array\"));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "05 - Search",
+      "item": [
+        {
+          "name": "Reindex Start",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/search/transactions/reindex",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "search", "transactions", "reindex"]
+            },
+            "description": "Mulai membangun ulang indeks Elasticsearch dari PostgreSQL.\n\nResponse `202 Accepted`, status awal `QUEUED`.\n\nMembutuhkan Elasticsearch aktif."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"202 Accepted\", () => pm.response.to.have.status(202));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Reindex Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/search/transactions/reindex",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "search", "transactions", "reindex"]
+            },
+            "description": "Status reindex: `IDLE`, `QUEUED`, `PROCESSING`, `COMPLETED`, `FAILED`."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Search Transactions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/search/transactions?q={{searchQuery}}&page=0&size=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "search", "transactions"],
+              "query": [
+                {"key": "q", "value": "{{searchQuery}}"},
+                {"key": "page", "value": "0"},
+                {"key": "size", "value": "20"}
+              ]
+            },
+            "description": "Pencarian teks pada `description` dan `externalReference`.\n\nNilai `q` 1–100 karakter, `size` maksimal 50."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Response berisi page\", () => pm.expect(pm.response.json()).to.have.property(\"content\"));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {"key": "baseUrl", "value": "http://localhost:8080", "type": "string"},
+    {"key": "bankTransactionId", "value": "", "type": "string"},
+    {"key": "internalTransactionId", "value": "", "type": "string"},
+    {"key": "matchId", "value": "", "type": "string"},
+    {"key": "importId", "value": "", "type": "string"},
+    {"key": "searchQuery", "value": "INV-1001", "type": "string"}
+  ]
+}

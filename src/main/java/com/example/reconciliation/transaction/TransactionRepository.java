@@ -22,10 +22,14 @@ public interface TransactionRepository extends JpaRepository<TransactionRecord, 
 
     @Query(value = """
         SELECT id, source, external_reference AS \"externalReference\", transaction_date AS \"transactionDate\",
-               amount, currency, description, status
+               amount, currency, description, status, import_batch_id AS \"importBatchId\"
         FROM transactions
         WHERE (:status IS NULL OR status = :status)
           AND (:source IS NULL OR source = :source)
+          AND (CAST(:batchId AS bigint) IS NULL OR import_batch_id = :batchId)
+          AND (:externalReference IS NULL OR POSITION(LOWER(:externalReference) IN LOWER(external_reference)) > 0)
+          AND (CAST(:minAmount AS numeric) IS NULL OR amount >= :minAmount)
+          AND (CAST(:maxAmount AS numeric) IS NULL OR amount <= :maxAmount)
           AND (:fromDate IS NULL OR transaction_date >= CAST(:fromDate AS date))
           AND (:toDate IS NULL OR transaction_date <= CAST(:toDate AS date))
         ORDER BY transaction_date DESC, id DESC
@@ -33,18 +37,26 @@ public interface TransactionRepository extends JpaRepository<TransactionRecord, 
         SELECT count(*) FROM transactions
         WHERE (:status IS NULL OR status = :status)
           AND (:source IS NULL OR source = :source)
+          AND (CAST(:batchId AS bigint) IS NULL OR import_batch_id = :batchId)
+          AND (:externalReference IS NULL OR POSITION(LOWER(:externalReference) IN LOWER(external_reference)) > 0)
+          AND (CAST(:minAmount AS numeric) IS NULL OR amount >= :minAmount)
+          AND (CAST(:maxAmount AS numeric) IS NULL OR amount <= :maxAmount)
           AND (:fromDate IS NULL OR transaction_date >= CAST(:fromDate AS date))
           AND (:toDate IS NULL OR transaction_date <= CAST(:toDate AS date))
         """, nativeQuery = true)
     Page<TransactionQueueRow> findQueue(@Param("status") String status,
                                         @Param("source") String source,
+                                        @Param("batchId") Long batchId,
+                                        @Param("externalReference") String externalReference,
+                                        @Param("minAmount") java.math.BigDecimal minAmount,
+                                        @Param("maxAmount") java.math.BigDecimal maxAmount,
                                         @Param("fromDate") String fromDate,
                                         @Param("toDate") String toDate,
                                         Pageable pageable);
 
     @Query(value = """
         SELECT id, source, external_reference AS \"externalReference\", transaction_date AS \"transactionDate\",
-               amount, currency, description, status
+               amount, currency, description, status, import_batch_id AS \"importBatchId\"
         FROM transactions
         WHERE source <> :source AND status = 'UNMATCHED' AND amount = :amount AND currency = :currency
           AND transaction_date BETWEEN CAST(:dateFrom AS date) AND CAST(:dateTo AS date)
