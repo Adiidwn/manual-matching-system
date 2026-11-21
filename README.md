@@ -388,6 +388,9 @@ Invoke-RestMethod "http://localhost:8080/api/transactions?status=RECONCILED&page
 # Ringkasan
 Invoke-RestMethod http://localhost:8080/api/reports/reconciliation
 
+# Ringkasan terfilter (tanggal + referensi)
+Invoke-RestMethod "http://localhost:8080/api/reports/reconciliation?fromDate=2025-03-01&toDate=2025-03-31&externalReference=INV"
+
 # Database
 docker compose exec postgres psql -U reconciliation -d reconciliation -c "SELECT source, status, count(*) FROM transactions GROUP BY source, status ORDER BY source, status;"
 docker compose exec postgres psql -U reconciliation -d reconciliation -c "SELECT id, status, maker, checker, signer FROM matches ORDER BY id DESC;"

@@ -18,6 +18,12 @@ services:
     volumes:
       - ./imports/inbox:/app/inbox
       - ./imports/processing:/app/import-processing
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/actuator/health/liveness || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 40s
     depends_on:
       postgres: { condition: service_healthy }
       kafka: { condition: service_healthy }

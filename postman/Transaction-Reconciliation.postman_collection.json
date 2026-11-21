@@ -618,9 +618,14 @@
             "url": {
               "raw": "{{baseUrl}}/api/reports/reconciliation",
               "host": ["{{baseUrl}}"],
-              "path": ["api", "reports", "reconciliation"]
+              "path": ["api", "reports", "reconciliation"],
+              "query": [
+                {"key": "fromDate", "value": "2025-03-01", "description": "yyyy-MM-dd, inklusif", "disabled": true},
+                {"key": "toDate", "value": "2025-03-31", "description": "yyyy-MM-dd, inklusif", "disabled": true},
+                {"key": "externalReference", "value": "INV-1001", "description": "pencarian sebagian", "disabled": true}
+              ]
             },
-            "description": "Agregasi jumlah transaksi per source dan status."
+            "description": "Agregasi jumlah dan nilai transaksi per source/status, plus pctOfSource dan pctOfAll."
           },
           "event": [
             {

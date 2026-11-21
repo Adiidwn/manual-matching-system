@@ -479,18 +479,66 @@ Aturan:
 
 ### `GET /api/reports/reconciliation`
 
+| Parameter | Aturan |
+|---|---|
+| `fromDate` | `yyyy-MM-dd`, inklusif |
+| `toDate` | `yyyy-MM-dd`, inklusif, tidak boleh lebih awal dari `fromDate` |
+| `externalReference` | pencarian sebagian, case-insensitive, maksimal 100 karakter |
+
+Filter diterapkan **sebelum** agregasi. Artinya `totalRows`, `totalAmount`, `pctOfSource`, dan `pctOfAll` dihitung dari data yang sudah difilter.
+
 ```bash
 curl.exe -sS http://localhost:8080/api/reports/reconciliation
+curl.exe -sS "http://localhost:8080/api/reports/reconciliation?fromDate=2025-03-01&toDate=2025-03-31"
+curl.exe -sS "http://localhost:8080/api/reports/reconciliation?externalReference=INV-1001"
+curl.exe -sS "http://localhost:8080/api/reports/reconciliation?fromDate=2025-03-01&toDate=2025-03-31&externalReference=INV"
 ```
 
 ```json
 [
-  {"source": "BANK", "status": "RECONCILED", "count": 2},
-  {"source": "BANK", "status": "UNMATCHED", "count": 10},
-  {"source": "INTERNAL", "status": "RECONCILED", "count": 2},
-  {"source": "INTERNAL", "status": "UNMATCHED", "count": 13}
+  {
+    "source": "BANK",
+    "status": "PENDING_APPROVAL",
+    "rowCount": 6,
+    "amount": 3000021.00,
+    "totalRows": 30,
+    "totalAmount": 9471042.00,
+    "pctOfSource": 20.00,
+    "pctOfAll": 12.50
+  },
+  {
+    "source": "BANK",
+    "status": "RECONCILED",
+    "rowCount": 6,
+    "amount": 4500021.00,
+    "totalRows": 30,
+    "totalAmount": 9471042.00,
+    "pctOfSource": 20.00,
+    "pctOfAll": 12.50
+  },
+  {
+    "source": "BANK",
+    "status": "UNMATCHED",
+    "rowCount": 18,
+    "amount": 1971000.00,
+    "totalRows": 30,
+    "totalAmount": 9471042.00,
+    "pctOfSource": 60.00,
+    "pctOfAll": 37.50
+  }
 ]
 ```
+
+| Field | Arti |
+|---|---|
+| `rowCount` | jumlah transaksi untuk `(source, status)` |
+| `amount` | total amount untuk `(source, status)` |
+| `totalRows` | jumlah transaksi seluruh status pada source tersebut |
+| `totalAmount` | total amount seluruh status pada source tersebut |
+| `pctOfSource` | `rowCount / totalRows × 100` |
+| `pctOfAll` | `rowCount / total seluruh transaksi × 100` |
+
+Diurutkan berdasarkan `source`, lalu `status`.
 
 ---
 
