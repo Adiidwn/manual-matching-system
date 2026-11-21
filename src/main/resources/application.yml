@@ -1,0 +1,26 @@
+spring:
+  application:
+    name: reconciliation
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/reconciliation}
+    username: ${SPRING_DATASOURCE_USERNAME:reconciliation}
+    password: ${SPRING_DATASOURCE_PASSWORD:reconciliation}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+  flyway:
+    enabled: true
+  kafka:
+    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:localhost}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
+  elasticsearch:
+    uris: ${SPRING_ELASTICSEARCH_URIS:http://localhost:9200}
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
