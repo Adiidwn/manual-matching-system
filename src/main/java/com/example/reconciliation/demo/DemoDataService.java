@@ -54,7 +54,7 @@ public class DemoDataService {
                             ps.setBigDecimal(4, BigDecimal.valueOf(10_000L + (row / 2) % 50_000, 2));
                             ps.setString(5, "Synthetic transaction " + (row / 2));
                         }
-                        public int getBatchSize() { return end - start; }
+                        public int getBatchSize() { return end - batchStart; }
                     });
                 state.set(new ImportState("PROCESSING", end, count, null));
             }
