@@ -1,0 +1,36 @@
+spring:
+  application:
+    name: reconciliation-import-worker
+  main:
+    web-application-type: none
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/reconciliation}
+    username: ${SPRING_DATASOURCE_USERNAME:reconciliation}
+    password: ${SPRING_DATASOURCE_PASSWORD:reconciliation}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+  flyway:
+    enabled: false
+  kafka:
+    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: reconciliation-import-worker
+      auto-offset-reset: earliest
+      max-poll-records: 1
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.value.default.type: com.example.reconciliation.imports.FileImportRequested
+        spring.json.trusted.packages: com.example.reconciliation.imports
+        spring.json.use.type.headers: false
+        max.poll.interval.ms: 1800000
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:localhost}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
+app:
+  import:
+    archive: ${APP_IMPORT_ARCHIVE:./import-archive}
+    error: ${APP_IMPORT_ERROR:./import-error}
+    chunk-size: ${APP_IMPORT_CHUNK_SIZE:1000}

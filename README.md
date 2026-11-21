@@ -4,10 +4,17 @@
 
 Aplikasi rekonsiliasi transaksi: **file CSV → parse → PostgreSQL → manual matching maker → checker → signer**.
 
-- **PostgreSQL** = sumber kebenaran.
-- **Kafka** = memproses import secara asynchronous.
+Monorepo dengan **dua deployable**:
+
+| Deployable | Tanggung jawab | Port |
+|---|---|---|
+| `api-service` | REST API, matching workflow, report, search, upload/scan intake | `8080` |
+| `import-worker` | konsumer Kafka, parsing CSV, insert transaksi, arsip file | — |
+
+- **PostgreSQL** = sumber kebenaran (dipakai kedua service).
+- **Kafka** = memproses import secara asynchronous (`file-import-requests`).
 - **Redis** = cache kandidat (60 detik).
-- **Elasticsearch** = pencarian teks.
+- **Elasticsearch** = pencarian teks (hanya API).
 
 > Tidak ada UI. Semua operasi lewat REST API.
 
@@ -26,6 +33,7 @@ file → parse → transaksi UNMATCHED → pilih kandidat → maker → checker 
 
 - [API reference](API.md)
 - [Postman collection](postman/README.md)
+- [Struktur monorepo](#struktur-monorepo)
 - [Menjalankan](#menjalankan)
 - [Format file](#format-file)
 - [Import](#import)
@@ -38,7 +46,42 @@ file → parse → transaksi UNMATCHED → pilih kandidat → maker → checker 
 - [Konfigurasi](#konfigurasi)
 - [Troubleshooting](#troubleshooting)
 - [Structured logging](#structured-logging)
+- [Middleware](#middleware)
 - [Testing dan CI](#testing-dan-ci)
+
+## Struktur monorepo
+
+```text
+reconciliation/
+├─ pom.xml                  parent (packaging pom)
+├─ common/                  kontrak + model bersama
+│  ├─ imports/              FileImportRequested, ImportBatch, ImportRepository, ImportStatus
+│  └─ transaction/          TransactionSource
+├─ api-service/             deployable #1
+│  ├─ config/               CorrelationIdFilter, CacheConfiguration, OpenApiConfiguration
+│  ├─ middleware/           ActorMiddleware, RequireRole, RoleAuthorizationInterceptor
+│  ├─ imports/              ImportController, ImportService (intake), ImportView, scheduler
+│  ├─ transaction/ workflow/ search/ report/
+│  ├─ resources/db/migration  pemilik migrasi Flyway
+│  └─ Dockerfile
+├─ import-worker/           deployable #2
+│  ├─ imports/              ImportConsumer, ImportProcessor, CsvFileParser
+│  ├─ config/               WorkerCacheConfiguration
+│  ├─ resources/application.yml
+│  └─ Dockerfile
+├─ compose.yaml             api + import-worker + PostgreSQL/Kafka/Redis/Elasticsearch
+└─ .github/workflows/ci.yml test semua modul, build 2 image, publish ke GHCR
+```
+
+Alur import setelah dipisah:
+
+```text
+upload/scan → api-service: hash + register batch + pindah file ke processing
+            → Kafka: file-import-requests
+            → import-worker: parse + insert + arsipkan file
+```
+
+`api-service` pemilik skema (Flyway). `import-worker` memakai `spring.flyway.enabled=false` dan menunggu API sehat sebelum start.
 
 ## Menjalankan
 
@@ -46,7 +89,10 @@ Butuh Docker + Compose.
 
 ```shell
 docker compose up --build -d
+docker compose ps
 ```
+
+`compose.yaml` menjalankan dua container aplikasi: `api` (port 8080) dan `import-worker` (tanpa port). Worker menunggu API `healthy` agar skema Flyway sudah siap.
 
 Tunggu sampai semua service `healthy`, lalu cek:
 
@@ -143,7 +189,7 @@ New-Item -ItemType Directory -Force imports/inbox | Out-Null
 Copy-Item samples/transactions-sample.csv imports/inbox/
 ```
 
-Scheduler memindai folder setiap 30 detik. File harus `.csv` dan sudah stabil minimal 3 detik.
+Scheduler berjalan di `api-service` dan memindai folder setiap 30 detik. File harus `.csv` dan sudah stabil minimal 3 detik. Setelah registrasi, file diproses oleh `import-worker` lewat Kafka.
 
 ### 2. Upload
 
@@ -151,7 +197,7 @@ Scheduler memindai folder setiap 30 detik. File harus `.csv` dan sudah stabil mi
 curl.exe -F "file=@samples/transactions-sample.csv" http://localhost:8080/api/imports
 ```
 
-Upload langsung diproses tanpa menunggu scheduler. Maksimal 100 MB.
+Upload langsung didaftarkan oleh API dan dikirim ke `import-worker`; tidak perlu menunggu scheduler. Maksimal 100 MB.
 
 ### 3. Scan manual
 
@@ -366,26 +412,26 @@ SPRING_DATA_ELASTICSEARCH_REPOSITORIES_ENABLED=false
 
 ## Konfigurasi
 
-| Variable | Default | Fungsi |
-|---|---|---|
-| `APP_IMPORT_INBOX` | `./inbox` | folder scheduler |
-| `APP_IMPORT_PROCESSING` | `./import-processing` | file diproses |
-| `APP_IMPORT_ARCHIVE` | `./import-archive` | file sukses |
-| `APP_IMPORT_ERROR` | `./import-error` | file gagal |
-| `APP_IMPORT_POLL_INTERVAL_MS` | `30000` | interval scan |
-| `APP_IMPORT_CHUNK_SIZE` | `1000` | baris per batch insert |
-| `SPRING_DATASOURCE_URL` | `jdbc:postgresql://localhost:5432/reconciliation` | PostgreSQL |
-| `SPRING_KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` | Kafka |
-| `SPRING_DATA_REDIS_HOST` | `localhost` | Redis |
-| `SPRING_ELASTICSEARCH_URIS` | `http://localhost:9200` | Elasticsearch |
-| `LOGGING_STRUCTURED_FORMAT_CONSOLE` | — | `ecs` untuk log JSON ECS |
+| Variable | Service | Default | Fungsi |
+|---|---|---|---|
+| `APP_IMPORT_INBOX` | api | `./inbox` | folder scheduler |
+| `APP_IMPORT_PROCESSING` | api + worker | `./import-processing` | file yang sedang diproses |
+| `APP_IMPORT_ARCHIVE` | worker | `./import-archive` | file sukses |
+| `APP_IMPORT_ERROR` | worker | `./import-error` | file gagal |
+| `APP_IMPORT_POLL_INTERVAL_MS` | api | `30000` | interval scan |
+| `APP_IMPORT_CHUNK_SIZE` | worker | `1000` | baris per batch insert |
+| `SPRING_DATASOURCE_URL` | api + worker | `jdbc:postgresql://localhost:5432/reconciliation` | PostgreSQL |
+| `SPRING_KAFKA_BOOTSTRAP_SERVERS` | api + worker | `localhost:9092` | Kafka |
+| `SPRING_DATA_REDIS_HOST` | api + worker | `localhost` | Redis |
+| `SPRING_ELASTICSEARCH_URIS` | api | `http://localhost:9200` | Elasticsearch |
+| `LOGGING_STRUCTURED_FORMAT_CONSOLE` | api + worker | — | `ecs` untuk log JSON ECS |
 
 ## Troubleshooting
 
 | Gejala | Solusi |
 |---|---|
-| Aplikasi tidak sehat | tunggu Elasticsearch healthy; cek `docker compose ps` dan `docker compose logs app` |
-| Batch tetap `RECEIVED` | import asynchronous; poll `GET /api/imports/{id}` |
+| Aplikasi tidak sehat | tunggu Elasticsearch healthy; cek `docker compose ps`, `docker compose logs api`, `docker compose logs import-worker` |
+| Batch tetap `RECEIVED` | worker belum mengonsumsi Kafka; cek `docker compose logs import-worker` |
 | Batch `FAILED` | lihat `errorMessage`; perbaiki file lalu upload ulang |
 | `rejectedRows > 0` | cek tanggal, amount, currency, jumlah kolom |
 | `Row count mismatch` | trailer tidak sama dengan jumlah baris data |
@@ -408,8 +454,13 @@ Setiap request mendapat correlation id:
 
 - dari header `X-Request-Id`, atau UUID jika tidak dikirim,
 - dikembalikan di response header `X-Request-Id`,
-- masuk ke MDC sebagai `requestId`,
-- `X-User` masuk ke MDC sebagai `user`.
+- masuk ke MDC sebagai `requestId`.
+
+Identitas demo dibaca sekali oleh middleware:
+
+- `X-User` → MDC `user` dan atribut request `Actor`,
+- `X-Role` → MDC `role`, divalidasi `MAKER`/`CHECKER`/`SIGNER`,
+- role yang tidak dikenal atau `X-Role` tanpa `X-User` ditolak `400`.
 
 Log import menyertakan `batchId` dan `fileName`. Log matching menyertakan `matchId` dan `actor`.
 
@@ -418,6 +469,30 @@ curl.exe -i -H "X-Request-Id: demo-123" http://localhost:8080/actuator/health
 docker compose logs -f app
 ```
 
+## Middleware
+
+Logika lintas endpoint tidak ditulis di controller. Urutan eksekusinya:
+
+| Middleware | File | Fungsi |
+|---|---|---|
+| `CorrelationIdFilter` | `config/CorrelationIdFilter.java` | membuat/meneruskan `X-Request-Id` ke MDC |
+| `ActorMiddleware` | `middleware/ActorMiddleware.java` | memvalidasi `X-User`/`X-Role` sekali, menyimpan `Actor` + MDC |
+| `RoleAuthorizationInterceptor` | `middleware/RoleAuthorizationInterceptor.java` | menegakkan `@RequireRole` sebelum controller dipanggil |
+| `MiddlewareConfiguration` | `middleware/MiddlewareConfiguration.java` | mendaftarkan interceptor untuk `/api/**` |
+
+Controller matching kini hanya mendeklarasikan kebutuhan role:
+
+```java
+@RequireRole("MAKER")
+public MatchView create(@RequestAttribute(Actor.REQUEST_ATTRIBUTE) Actor actor,
+                        @Valid @RequestBody CreateRequest request) {
+    return service.create(request, actor.user());
+}
+```
+
+`MatchingService` tidak lagi mengurus MDC `actor`; nilai itu sudah dipasang middleware. Penolakan role terjadi sebagai `403` sebelum body/argumen controller diproses.
+
+
 ## Testing dan CI
 
 ```shell
@@ -425,13 +500,22 @@ mvn test
 mvn verify
 ```
 
-Test mencakup parser CSV/trailer, lifecycle batch import, validasi antrean, pencarian kandidat, dan alur maker-checker-signer.
+Test mencakup parser CSV/trailer, lifecycle batch import, validasi antrean, pencarian kandidat, middleware, dan alur maker-checker-signer.
+
+Per modul:
+
+```shell
+mvn -pl api-service -am test
+mvn -pl import-worker -am test
+```
 
 Pipeline GitHub Actions ada di `.github/workflows/ci.yml`:
 
-- `mvn verify` untuk test + build jar,
-- build Docker image,
-- publish image ke GHCR jika push tag `v*`.
+- `mvn verify` untuk test + build semua modul,
+- build dua Docker image (`api-service/Dockerfile`, `import-worker/Dockerfile`),
+- publish dua image ke GHCR jika push tag `v*`:
+  - `ghcr.io/<owner>/<repo>-api:<tag>`
+  - `ghcr.io/<owner>/<repo>-worker:<tag>`.
 
 ## Catatan desain
 
@@ -440,11 +524,12 @@ Pipeline GitHub Actions ada di `.github/workflows/ci.yml`:
 - Import membaca file per chunk, sehingga aman untuk file besar dari sisi memori.
 - Kafka menangani antrean import; Redis hanya cache; Elasticsearch hanya indeks teks.
 - Header `X-User`/`X-Role` hanya simulasi; produksi perlu autentikasi nyata.
-- Ini demo modular monolith, bukan microservices terpisah.
+- API dan worker adalah dua deployable dengan database yang sama (shared database). Pembagian berikutnya: worker memiliki tabel import/transaksi tulis, API memiliki workflow match, lalu event untuk sinkronisasi.
+- Migrasi Flyway hanya dijalankan `api-service`; worker menunggu API sehat.
 
 ## Teknologi
 
 - Spring Boot, Spring Data JPA, Spring Cache, Spring Kafka
 - PostgreSQL, Kafka, Redis, Elasticsearch
 - SQL native untuk antrean, kandidat, bulk insert, dan report
-- Docker Compose
+- Monorepo Maven multi-module, Docker multi-stage, GitHub Actions + GHCR

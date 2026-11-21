@@ -1,0 +1,51 @@
+spring:
+  application:
+    name: reconciliation-api
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/reconciliation}
+    username: ${SPRING_DATASOURCE_USERNAME:reconciliation}
+    password: ${SPRING_DATASOURCE_PASSWORD:reconciliation}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+  flyway:
+    enabled: true
+  servlet:
+    multipart:
+      max-file-size: 100MB
+      max-request-size: 100MB
+  kafka:
+    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      properties:
+        spring.json.add.type.headers: false
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:localhost}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
+  elasticsearch:
+    uris: ${SPRING_ELASTICSEARCH_URIS:http://localhost:9200}
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: method
+    tags-sorter: alpha
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+app:
+  import:
+    inbox: ${APP_IMPORT_INBOX:./inbox}
+    processing: ${APP_IMPORT_PROCESSING:./import-processing}
+    poll-interval-ms: ${APP_IMPORT_POLL_INTERVAL_MS:30000}
+    initial-delay-ms: ${APP_IMPORT_INITIAL_DELAY_MS:10000}

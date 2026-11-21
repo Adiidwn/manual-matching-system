@@ -39,9 +39,10 @@ Swagger UI: `http://localhost:8080/swagger-ui.html` — OpenAPI JSON: `http://lo
 - Amount: angka desimal, misalnya `150000.00`.
 - Pagination: `page` mulai dari `0`.
 - Setiap response menyertakan header `X-Request-Id` untuk korelasi log.
-- Header identitas (khusus matching):
+- Header identitas (khusus matching, dibaca sekali oleh `ActorMiddleware`):
   - `X-User`: nama pengguna, maksimal 100 karakter.
   - `X-Role`: `MAKER`, `CHECKER`, atau `SIGNER`.
+  - `X-Role` tanpa `X-User` atau role tak dikenal → `400`; role tidak cocok dengan aksi → `403`.
 - Kode status umum:
   - `200` sukses.
   - `201` data dibuat.
