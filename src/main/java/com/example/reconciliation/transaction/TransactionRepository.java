@@ -3,12 +3,18 @@ package com.example.reconciliation.transaction;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import jakarta.persistence.LockModeType;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.transaction.annotation.Transactional;
 
 public interface TransactionRepository extends JpaRepository<TransactionRecord, Long> {
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select t from TransactionRecord t where t.id = :id")
+    java.util.Optional<TransactionRecord> findLockedById(@Param("id") Long id);
+
     @Modifying
     @Transactional
     @Query(value = "UPDATE transactions SET status = :status WHERE id = :id", nativeQuery = true)

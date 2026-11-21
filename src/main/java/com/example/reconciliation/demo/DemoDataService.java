@@ -8,7 +8,6 @@ import org.springframework.cache.CacheManager;
 import java.math.BigDecimal;
 import java.sql.Date;
 import java.time.LocalDate;
-import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 
 @Service
@@ -53,7 +52,7 @@ public class DemoDataService {
                             ps.setString(2, "DEMO-" + (row / 2));
                             ps.setDate(3, Date.valueOf(LocalDate.of(2025, 1, 1).plusDays(row % 365)));
                             ps.setBigDecimal(4, BigDecimal.valueOf(10_000L + (row / 2) % 50_000, 2));
-                            ps.setString(5, "Synthetic transaction " + (row / 2) + " " + UUID.nameUUIDFromBytes(("demo-" + row).getBytes()).toString().substring(0, 8));
+                            ps.setString(5, "Synthetic transaction " + (row / 2));
                         }
                         public int getBatchSize() { return end - start; }
                     });

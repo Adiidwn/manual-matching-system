@@ -29,9 +29,9 @@ public class MatchingService {
     @Transactional
     @CacheEvict(cacheNames = "transaction-candidates", allEntries = true)
     public MatchView create(CreateRequest request, String actor) {
-        TransactionRecord bank = transactions.findById(request.bankTransactionId())
+        TransactionRecord bank = transactions.findLockedById(request.bankTransactionId())
                 .orElseThrow(() -> notFound("Bank transaction not found"));
-        TransactionRecord internal = transactions.findById(request.internalTransactionId())
+        TransactionRecord internal = transactions.findLockedById(request.internalTransactionId())
                 .orElseThrow(() -> notFound("Internal transaction not found"));
         if (bank.getSource() != TransactionSource.BANK || internal.getSource() != TransactionSource.INTERNAL)
             throw badRequest("Select one BANK transaction and one INTERNAL transaction");
