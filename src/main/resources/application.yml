@@ -13,6 +13,16 @@ spring:
     enabled: true
   kafka:
     bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: reconciliation-demo-import
+      auto-offset-reset: earliest
+      properties:
+        spring.json.value.default.type: com.example.reconciliation.demo.DemoImportRequested
+        spring.json.trusted.packages: com.example.reconciliation.demo
+    producer:
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      properties:
+        spring.json.add.type.headers: false
   data:
     redis:
       host: ${SPRING_DATA_REDIS_HOST:localhost}

@@ -49,4 +49,5 @@ public interface TransactionRepository extends JpaRepository<TransactionRecord, 
             @Param("amount") java.math.BigDecimal amount, @Param("currency") String currency,
             @Param("dateFrom") String dateFrom, @Param("dateTo") String dateTo,
             @Param("targetDate") String targetDate, @Param("limit") int limit);
+
 }

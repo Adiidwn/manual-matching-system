@@ -1,22 +1,29 @@
 package com.example.reconciliation.demo;
 
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.cache.CacheManager;
 
 import java.math.BigDecimal;
 import java.sql.Date;
 import java.time.LocalDate;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
 
 @Service
 public class DemoDataService {
     private static final int BATCH_SIZE = 2_000;
     private final JdbcTemplate jdbc;
+    private final KafkaTemplate<String, DemoImportRequested> kafka;
+    private final CacheManager cacheManager;
     private final AtomicReference<ImportState> state = new AtomicReference<>(new ImportState("IDLE", 0, 0, null));
 
-    public DemoDataService(JdbcTemplate jdbc) { this.jdbc = jdbc; }
+    public DemoDataService(JdbcTemplate jdbc, KafkaTemplate<String, DemoImportRequested> kafka, CacheManager cacheManager) {
+        this.jdbc = jdbc;
+        this.kafka = kafka;
+        this.cacheManager = cacheManager;
+    }
 
     public synchronized ImportState start(int count) {
         if (count < 1 || count > 1_000_000) throw new IllegalArgumentException("count must be between 1 and 1000000");
@@ -24,13 +31,15 @@ public class DemoDataService {
         if ("QUEUED".equals(current) || "PROCESSING".equals(current))
             throw new IllegalStateException("A demo import is already running");
         state.set(new ImportState("QUEUED", 0, count, null));
-        CompletableFuture.runAsync(() -> generate(count));
+        kafka.send("demo-import-requests", new DemoImportRequested(count)).whenComplete((result, error) -> {
+            if (error != null) state.set(new ImportState("FAILED", 0, count, error.getMessage()));
+        });
         return state.get();
     }
 
     public ImportState getState() { return state.get(); }
 
-    private void generate(int count) {
+    void generate(int count) {
         state.set(new ImportState("PROCESSING", 0, count, null));
         try {
             for (int start = 0; start < count; start += BATCH_SIZE) {
@@ -50,6 +59,8 @@ public class DemoDataService {
                     });
                 state.set(new ImportState("PROCESSING", end, count, null));
             }
+            if (cacheManager.getCache("transaction-candidates") != null)
+                cacheManager.getCache("transaction-candidates").clear();
             state.set(new ImportState("COMPLETED", count, count, null));
         } catch (Exception e) {
             state.set(new ImportState("FAILED", state.get().processed(), count, e.getMessage()));

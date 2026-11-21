@@ -7,6 +7,7 @@ import com.example.reconciliation.transaction.TransactionStatus;
 import jakarta.transaction.Transactional;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
@@ -26,6 +27,7 @@ public class MatchingService {
     }
 
     @Transactional
+    @CacheEvict(cacheNames = "transaction-candidates", allEntries = true)
     public MatchView create(CreateRequest request, String actor) {
         TransactionRecord bank = transactions.findById(request.bankTransactionId())
                 .orElseThrow(() -> notFound("Bank transaction not found"));
@@ -46,18 +48,20 @@ public class MatchingService {
     }
 
     @Transactional
+    @CacheEvict(cacheNames = "transaction-candidates", allEntries = true)
     public MatchView checkerDecision(Long id, String actor, DecisionRequest request) {
         MatchRecord match = findLocked(id);
         requireStatus(match, MatchStatus.SUBMITTED);
         requireDifferentActor(match.getMaker(), actor, "Checker cannot approve their own submission");
         if (request.approve()) match.checkedBy(actor);
-        else reject(match, actor, request.reason(), "CHECKER");
+        else reject(match, actor, request.reason());
         matches.save(match);
         audits.save(new AuditEvent(id, actor, "CHECKER", request.approve() ? "APPROVE" : "REJECT", request.reason()));
         return MatchView.from(match);
     }
 
     @Transactional
+    @CacheEvict(cacheNames = "transaction-candidates", allEntries = true)
     public MatchView signerDecision(Long id, String actor, DecisionRequest request) {
         MatchRecord match = findLocked(id);
         requireStatus(match, MatchStatus.CHECKED);
@@ -67,7 +71,7 @@ public class MatchingService {
             match.signedBy(actor);
             transactions.updateStatus(match.getBankTransactionId(), TransactionStatus.RECONCILED.name());
             transactions.updateStatus(match.getInternalTransactionId(), TransactionStatus.RECONCILED.name());
-        } else reject(match, actor, request.reason(), "SIGNER");
+        } else reject(match, actor, request.reason());
         matches.save(match);
         audits.save(new AuditEvent(id, actor, "SIGNER", request.approve() ? "APPROVE" : "REJECT", request.reason()));
         return MatchView.from(match);
@@ -79,7 +83,7 @@ public class MatchingService {
         return new MatchDetails(MatchView.from(match), audits.findByMatchIdOrderByOccurredAtAscIdAsc(id).stream().map(AuditView::from).toList());
     }
 
-    private void reject(MatchRecord match, String actor, String reason, String role) {
+    private void reject(MatchRecord match, String actor, String reason) {
         if (reason == null || reason.isBlank()) throw badRequest("A rejection reason is required");
         match.rejected(actor, reason.trim());
         transactions.updateStatus(match.getBankTransactionId(), TransactionStatus.UNMATCHED.name());
