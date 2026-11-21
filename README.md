@@ -19,6 +19,7 @@ Monorepo dengan **dua deployable**:
 > Tidak ada UI. Semua operasi lewat REST API.
 
 Dokumentasi endpoint lengkap: [`API.md`](API.md).
+Arsitektur dan alur sistem: [`docs/architecture.md`](docs/architecture.md).
 Koleksi Postman: [`postman/`](postman/README.md).
 Swagger UI: `http://localhost:8080/swagger-ui.html`.
 OpenAPI JSON: `http://localhost:8080/v3/api-docs`.
@@ -32,6 +33,7 @@ file → parse → transaksi UNMATCHED → pilih kandidat → maker → checker 
 ## Daftar isi
 
 - [API reference](API.md)
+- [Arsitektur](docs/architecture.md)
 - [Postman collection](postman/README.md)
 - [Struktur monorepo](#struktur-monorepo)
 - [Menjalankan](#menjalankan)
