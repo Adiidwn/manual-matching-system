@@ -36,6 +36,8 @@ class ImportProcessorTest {
     private JdbcTemplate jdbc;
     @Mock
     private CacheManager cacheManager;
+    @Mock
+    private ImportHeaderAliasService headerAliases;
 
     @TempDir
     Path tempDir;
@@ -45,13 +47,14 @@ class ImportProcessorTest {
     @BeforeEach
     void setUp() {
         processor = new ImportProcessor(
-                batches, jdbc, cacheManager,
+                batches, jdbc, cacheManager, headerAliases,
                 List.of(new CsvFileParser()),
                 tempDir.resolve("archive").toString(),
                 tempDir.resolve("error").toString(),
                 1000);
         lenient().when(batches.save(any(ImportBatch.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
+        lenient().when(headerAliases.aliases()).thenReturn(java.util.Map.of());
     }
 
     @Test
@@ -103,6 +106,53 @@ class ImportProcessorTest {
         try (Stream<Path> archived = Files.list(tempDir.resolve("archive"))) {
             assertThat(archived).hasSize(1);
         }
+    }
+
+    @Test
+    void importsFileWhoseColumnsAreNotInTheCanonicalOrder() throws IOException {
+        Path file = writeFile("reordered.csv", """
+                description,amount,currency,source,transaction_date,external_reference
+                row,100.00,IDR,BANK,2025-03-01,INV-9
+                """);
+        ImportBatch batch = batch(3L, file);
+        when(batches.findById(3L)).thenReturn(Optional.of(batch));
+        when(jdbc.batchUpdate(anyString(), any(BatchPreparedStatementSetter.class)))
+                .thenReturn(new int[]{1});
+        when(cacheManager.getCache("transaction-candidates")).thenReturn(null);
+
+        processor.process(new FileImportRequested(3L, file.toString()));
+
+        assertThat(batch.getStatus()).isEqualTo(ImportStatus.COMPLETED);
+        assertThat(batch.getTotalRows()).isEqualTo(1);
+        assertThat(batch.getInsertedRows()).isEqualTo(1);
+        verify(jdbc).batchUpdate(anyString(), any(BatchPreparedStatementSetter.class));
+    }
+
+    @Test
+    void importsFileUsingHeaderAliasesLoadedFromTheDatabase() throws IOException {
+        when(headerAliases.aliases()).thenReturn(java.util.Map.of(
+                "sumber", "source",
+                "no referensi", "external_reference",
+                "tanggal", "transaction_date",
+                "nominal", "amount",
+                "mata uang", "currency",
+                "keterangan", "description"));
+        Path file = writeFile("aliases.csv", """
+                Sumber,No Referensi,Tanggal,Nominal,Mata Uang,Keterangan
+                BANK,INV-10,2025-03-01,100.00,IDR,row
+                """);
+        ImportBatch batch = batch(4L, file);
+        when(batches.findById(4L)).thenReturn(Optional.of(batch));
+        when(jdbc.batchUpdate(anyString(), any(BatchPreparedStatementSetter.class)))
+                .thenReturn(new int[]{1});
+        when(cacheManager.getCache("transaction-candidates")).thenReturn(null);
+
+        processor.process(new FileImportRequested(4L, file.toString()));
+
+        assertThat(batch.getStatus()).isEqualTo(ImportStatus.COMPLETED);
+        assertThat(batch.getTotalRows()).isEqualTo(1);
+        assertThat(batch.getInsertedRows()).isEqualTo(1);
+        assertThat(batch.getRejectedRows()).isZero();
     }
 
     private Path writeFile(String name, String content) throws IOException {

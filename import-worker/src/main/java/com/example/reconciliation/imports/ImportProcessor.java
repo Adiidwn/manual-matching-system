@@ -23,6 +23,7 @@ import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 /**
  * Worker-side import processing: validates the trailer, parses rows in chunks,
@@ -43,12 +44,14 @@ public class ImportProcessor {
     private final ImportRepository batches;
     private final JdbcTemplate jdbc;
     private final CacheManager cacheManager;
+    private final ImportHeaderAliasService headerAliases;
     private final List<FileParser> parsers;
     private final Path archive;
     private final Path error;
     private final int chunkSize;
 
     public ImportProcessor(ImportRepository batches, JdbcTemplate jdbc, CacheManager cacheManager,
+                           ImportHeaderAliasService headerAliases,
                            List<FileParser> parsers,
                            @Value("${app.import.archive:./import-archive}") String archive,
                            @Value("${app.import.error:./import-error}") String error,
@@ -56,6 +59,7 @@ public class ImportProcessor {
         this.batches = batches;
         this.jdbc = jdbc;
         this.cacheManager = cacheManager;
+        this.headerAliases = headerAliases;
         this.parsers = parsers;
         this.archive = Path.of(archive).toAbsolutePath().normalize();
         this.error = Path.of(error).toAbsolutePath().normalize();
@@ -86,7 +90,8 @@ public class ImportProcessor {
         try {
             if (!Files.isRegularFile(file)) throw new IOException("File not found: " + file);
             FileParser parser = parserFor(file);
-            FileSummary summary = summarize(file, parser);
+            Map<String, String> aliases = headerAliases.aliases();
+            FileSummary summary = summarize(file, parser, aliases);
             batch.setTotalRows((int) Math.min(Integer.MAX_VALUE, summary.dataRows()));
             if (summary.declaredRows() != null) {
                 batch.setDeclaredRows(Math.toIntExact(summary.declaredRows()));
@@ -98,7 +103,7 @@ public class ImportProcessor {
             }
 
             try (BufferedReader reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
-                parser.validateHeader(reader.readLine());
+                HeaderMapping header = parser.validateHeader(reader.readLine(), aliases);
                 List<ParsedRow> chunk = new ArrayList<>(chunkSize);
                 String line;
                 long rowNumber = 0;
@@ -113,7 +118,7 @@ public class ImportProcessor {
                         break;
                     }
                     try {
-                        chunk.add(parser.parseRow(line, rowNumber));
+                        chunk.add(parser.parseRow(line, rowNumber, header));
                     } catch (IllegalArgumentException e) {
                         rejected++;
                         log.warn("Import {} row {} rejected: {}", batch.getId(), rowNumber, e.getMessage());
@@ -222,9 +227,9 @@ public class ImportProcessor {
         if (cache != null) cache.clear();
     }
 
-    private static FileSummary summarize(Path file, FileParser parser) throws IOException {
+    private static FileSummary summarize(Path file, FileParser parser, Map<String, String> aliases) throws IOException {
         try (BufferedReader reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
-            parser.validateHeader(reader.readLine());
+            parser.validateHeader(reader.readLine(), aliases);
             long dataRows = 0;
             String lastNonBlank = null;
             String line;

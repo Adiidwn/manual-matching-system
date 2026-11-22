@@ -1,6 +1,7 @@
 package com.example.reconciliation.imports;
 
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
@@ -29,9 +30,9 @@ public class ImportController {
         this.scheduler = scheduler;
     }
 
-    @PostMapping
+    @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @ResponseStatus(HttpStatus.ACCEPTED)
-    public ImportView upload(@RequestParam("file") MultipartFile file) throws IOException {
+    public ImportView upload(@RequestPart("file") MultipartFile file) throws IOException {
         if (file.isEmpty()) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "file is required");
         String name = safeFileName(file.getOriginalFilename());
         if (!name.toLowerCase(Locale.ROOT).endsWith(".csv")) {

@@ -8,13 +8,15 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.regex.Pattern;
 
 @Component
 public class CsvFileParser implements FileParser {
-    private static final List<String> HEADER = List.of(
+    public static final List<String> CANONICAL_COLUMNS = List.of(
             "source", "external_reference", "transaction_date", "amount", "currency", "description");
     private static final Pattern TRAILER_PATTERN = Pattern.compile("\\d{1,9}");
 
@@ -24,29 +26,73 @@ public class CsvFileParser implements FileParser {
     }
 
     @Override
-    public void validateHeader(String headerLine) {
+    public HeaderMapping validateHeader(String headerLine, Map<String, String> aliases) {
         if (headerLine == null) throw new IllegalArgumentException("CSV file is empty");
         List<String> actual = split(stripBom(headerLine)).stream()
-                .map(value -> value.trim().toLowerCase(Locale.ROOT))
+                .map(CsvFileParser::normalizeName)
                 .toList();
-        if (!actual.equals(HEADER)) {
-            throw new IllegalArgumentException("Expected header " + HEADER + " but found " + actual);
+        Map<String, String> normalizedAliases = normalizeAliases(aliases);
+        Map<String, Integer> indexes = new HashMap<>();
+        Map<String, Integer> seenHeaders = new HashMap<>();
+        for (int i = 0; i < actual.size(); i++) {
+            String name = actual.get(i);
+            if (seenHeaders.putIfAbsent(name, i) != null) {
+                throw new IllegalArgumentException("Duplicate header column: " + name);
+            }
+            String canonical = CANONICAL_COLUMNS.contains(name) ? name : normalizedAliases.get(name);
+            if (canonical == null) continue;
+            Integer previous = indexes.putIfAbsent(canonical, i);
+            if (previous != null) {
+                throw new IllegalArgumentException("Duplicate column for " + canonical
+                        + " at positions " + previous + " and " + i);
+            }
         }
+        List<String> missing = CANONICAL_COLUMNS.stream().filter(column -> !indexes.containsKey(column)).toList();
+        if (!missing.isEmpty()) {
+            throw new IllegalArgumentException("Expected header " + CANONICAL_COLUMNS
+                    + " but missing " + missing + " in " + actual);
+        }
+        return new HeaderMapping(indexes, actual.size());
+    }
+
+    private static Map<String, String> normalizeAliases(Map<String, String> aliases) {
+        Map<String, String> normalized = new HashMap<>();
+        if (aliases == null) return normalized;
+        aliases.forEach((alias, canonical) -> {
+            String key = normalizeName(alias);
+            String value = normalizeName(canonical);
+            if (key.isEmpty() || value.isEmpty()) return;
+            String previous = normalized.putIfAbsent(key, value);
+            if (previous != null && !previous.equals(value)) {
+                throw new IllegalArgumentException("Header alias '" + key + "' maps to both '"
+                        + previous + "' and '" + value + "'");
+            }
+        });
+        return normalized;
+    }
+
+    private static String normalizeName(String value) {
+        return value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
     }
 
     @Override
-    public ParsedRow parseRow(String line, long rowNumber) {
+    public ParsedRow parseRow(String line, long rowNumber, HeaderMapping header) {
         List<String> columns = split(line);
-        if (columns.size() != HEADER.size()) {
-            throw new IllegalArgumentException("expected " + HEADER.size() + " columns but found " + columns.size());
+        if (columns.size() != header.columnCount()) {
+            throw new IllegalArgumentException("expected " + header.columnCount()
+                    + " columns but found " + columns.size());
         }
-        TransactionSource source = parseSource(columns.get(0));
-        String reference = parseReference(columns.get(1));
-        LocalDate date = parseDate(columns.get(2));
-        BigDecimal amount = parseAmount(columns.get(3));
-        String currency = parseCurrency(columns.get(4));
-        String description = parseDescription(columns.get(5));
+        TransactionSource source = parseSource(column(columns, header, "source"));
+        String reference = parseReference(column(columns, header, "external_reference"));
+        LocalDate date = parseDate(column(columns, header, "transaction_date"));
+        BigDecimal amount = parseAmount(column(columns, header, "amount"));
+        String currency = parseCurrency(column(columns, header, "currency"));
+        String description = parseDescription(column(columns, header, "description"));
         return new ParsedRow(rowNumber, source, reference, date, amount, currency, description);
+    }
+
+    private static String column(List<String> columns, HeaderMapping header, String name) {
+        return columns.get(header.indexOf(name));
     }
 
     @Override

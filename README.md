@@ -127,7 +127,7 @@ docker compose down -v
 
 ## Format file
 
-File `.csv`, UTF-8, dengan urutan kolom tetap:
+File `.csv`, UTF-8, dengan header wajib. Urutan kolom bebas dan kolom tambahan diabaikan:
 
 ```text
 source,external_reference,transaction_date,amount,currency,description
@@ -146,6 +146,41 @@ Jika deskripsi mengandung koma, bungkus dengan kutip:
 
 ```csv
 BANK,INV-1001,2025-03-01,150000.00,IDR,"Transfer masuk, PT Alpha"
+```
+
+### Alias header dari database
+
+Kalau file memakai nama header yang berbeda (misalnya `Tanggal` atau `Nominal`), daftarkan alias di tabel `import_header_mappings`. Alias dibaca ulang setiap file diproses, jadi perubahan langsung berlaku tanpa restart.
+
+```sql
+INSERT INTO import_header_mappings (canonical_column, header_name) VALUES
+    ('source', 'Sumber'),
+    ('external_reference', 'No Referensi'),
+    ('transaction_date', 'Tanggal'),
+    ('amount', 'Nominal'),
+    ('currency', 'Mata Uang'),
+    ('description', 'Keterangan');
+```
+
+Contoh file yang diterima:
+
+```csv
+Sumber,No Referensi,Tanggal,Nominal,Mata Uang,Keterangan
+BANK,INV-1001,2025-03-01,150000.00,IDR,Transfer masuk
+```
+
+Aturan:
+
+- `canonical_column` harus salah satu dari `source`, `external_reference`, `transaction_date`, `amount`, `currency`, `description`.
+- Satu `header_name` hanya boleh dipetakan ke satu canonical column (unik, case-insensitive).
+- Nama kanonik selalu diterima tanpa perlu alias.
+- Urutan kolom bebas; kolom tanpa mapping diabaikan.
+- Mapping yang tidak valid membuat batch `FAILED` sebelum ada baris dimasukkan.
+
+Contoh script: [`samples/import-header-aliases.sql`](samples/import-header-aliases.sql). Untuk menjalankannya lewat Docker Compose:
+
+```powershell
+Get-Content samples/import-header-aliases.sql | docker compose exec -T postgres psql -U reconciliation -d reconciliation
 ```
 
 ### Baris total (trailer)

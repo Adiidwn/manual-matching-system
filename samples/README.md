@@ -1,6 +1,6 @@
 # Contoh file import
 
-Semua file memakai header dan urutan kolom yang sama:
+Semua file memakai header yang sama; urutan kolom bebas dan kolom tambahan diabaikan:
 
 ```text
 source,external_reference,transaction_date,amount,currency,description
@@ -11,6 +11,8 @@ source,external_reference,transaction_date,amount,currency,description
 - `amount`: angka positif, pemisah desimal titik
 - `currency`: 3 huruf, misalnya `IDR`
 - `description`: boleh kosong, kutip jika mengandung koma
+
+Nama header lain bisa dipakai dengan mendaftarkan alias di tabel `import_header_mappings` (lihat README utama).
 
 ## Baris total (trailer)
 
